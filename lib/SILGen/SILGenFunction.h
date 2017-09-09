@@ -201,7 +201,7 @@ public:
   bool NeedsReturn = false;
 
   /// \brief Is emission currently within a formal modification?
-  bool InWritebackScope = false;
+  bool InFormalEvaluationScope = false;
 
   /// \brief Is emission currently within an inout conversion?
   bool InInOutConversionScope = false;
@@ -1049,7 +1049,14 @@ public:
                            AccessSemantics semantics,
                            SGFContext C = SGFContext());
 
-  /// Produce an RValue for a load from the specified property.
+  /// Produce a singular RValue for a load from the specified property.
+  ///
+  /// This is designed to work with RValue ManagedValue bases that are either +0
+  /// or +1.
+  ///
+  /// \arg isBaseGuaranteed This should /only/ be set to true if we know that
+  /// the base value will stay alive as long as the returned RValue implying
+  /// that it is safe to load/use values as +0.
   RValue emitRValueForPropertyLoad(SILLocation loc,
                                    ManagedValue base,
                                    CanType baseFormalType,
@@ -1057,7 +1064,7 @@ public:
                                    SubstitutionList substitutions,
                                    AccessSemantics semantics, Type propTy,
                                    SGFContext C,
-                                   bool isGuaranteedValid = false);
+                                   bool isBaseGuaranteed = false);
 
   void emitCaptures(SILLocation loc,
                     AnyFunctionRef TheClosure,
@@ -1198,22 +1205,40 @@ public:
   SILValue emitConversionFromSemanticValue(SILLocation loc,
                                            SILValue semanticValue,
                                            SILType storageType);
-  
+
+  /// Load an r-value out of the given address. This does not handle
+  /// reabstraction or bridging. If that is needed, use the other emit load
+  /// entry point.
+  ///
+  /// \param rvalueTL - the type lowering for the type-of-rvalue
+  ///   of the address
+  /// \param isAddrGuaranteed - true if the value in this address
+  ///   is guaranteed to be valid for the duration of the current
+  ///   evaluation (see SGFContext::AllowGuaranteedPlusZero)
   ManagedValue emitLoad(SILLocation loc, SILValue addr,
                         const TypeLowering &rvalueTL,
                         SGFContext C, IsTake_t isTake,
-                        bool isGuaranteedValid = false);
+                        bool isAddrGuaranteed = false);
+
+  /// Load an r-value out of the given address handling re-abstraction and
+  /// bridging if required.
+  ///
+  /// \param rvalueTL - the type lowering for the type-of-rvalue
+  ///   of the address
+  /// \param isAddrGuaranteed - true if the value in this address
+  ///   is guaranteed to be valid for the duration of the current
+  ///   evaluation (see SGFContext::AllowGuaranteedPlusZero)
   ManagedValue emitLoad(SILLocation loc, SILValue addr,
                         AbstractionPattern origFormalType,
                         CanType substFormalType,
                         const TypeLowering &rvalueTL,
                         SGFContext C, IsTake_t isTake,
-                        bool isGuaranteedValid = false);
+                        bool isAddrGuaranteed = false);
 
   ManagedValue emitFormalAccessLoad(SILLocation loc, SILValue addr,
                                     const TypeLowering &rvalueTL, SGFContext C,
                                     IsTake_t isTake,
-                                    bool isGuaranteedValid = false);
+                                    bool isAddrGuaranteed = false);
 
   void emitAssignToLValue(SILLocation loc, ArgumentSource &&src, LValue &&dest);
   void emitAssignToLValue(SILLocation loc, RValue &&src, LValue &&dest);
@@ -1231,7 +1256,7 @@ public:
                                    AccessKind accessKind);
 
   RValue emitLoadOfLValue(SILLocation loc, LValue &&src, SGFContext C,
-                          bool isGuaranteedValid = false);
+                          bool isBaseLValueGuaranteed = false);
 
   /// Emit a reference to a method from within another method of the type.
   std::tuple<ManagedValue, SILType>
